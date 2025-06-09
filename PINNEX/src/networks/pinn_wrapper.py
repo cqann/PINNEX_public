@@ -25,7 +25,7 @@ class CachedPINNWrapper(nn.Module):
         z_pde = self.model.pde_encoder(x, y, z)
 
         # 2) Obtain ECG latent; use caching if sim_ids are provided.
-        if sim_ids is None:
+        if sim_ids is None or True:
             z_ecg = self.model.ecg_encoder(ecg)
         else:
             batch_size = ecg.shape[0]

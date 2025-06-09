@@ -3,36 +3,11 @@ from torch import nn
 import torch.optim as optim
 
 # Use the new eikonal residual function for the physics-based loss
-from src.pde.eikonal_pinnex import eikonal_residual
 import time
 import numpy as np
 
-import torch
 from torch.utils.data import DataLoader  # Make sure DataLoader is imported
 import math
-
-
-def sample_surface_points(x_min, x_max, y_min, y_max, z_min, z_max, N, device):
-    # Randomly choose which face (0: x=x_min, 1: x=x_max, ..., 5: z=z_max)
-    face_ids = torch.randint(0, 6, (N,), device=device)
-
-    coords = torch.rand(N, 3, device=device)
-
-    # Scale to full range
-    coords[:, 0] = coords[:, 0] * (x_max - x_min) + x_min
-    coords[:, 1] = coords[:, 1] * (y_max - y_min) + y_min
-    coords[:, 2] = coords[:, 2] * (z_max - z_min) + z_min
-
-    # Override one coordinate based on face
-    coords[face_ids == 0, 0] = x_min
-    coords[face_ids == 1, 0] = x_max
-    coords[face_ids == 2, 1] = y_min
-    coords[face_ids == 3, 1] = y_max
-    coords[face_ids == 4, 2] = z_min
-    coords[face_ids == 5, 2] = z_max
-
-    # Return split into x, y, z
-    return coords[:, 0:1], coords[:, 1:2], coords[:, 2:3]
 
 
 def _initialize_training_state(model, lr, weight_decay, device):
@@ -119,8 +94,7 @@ def _setup_physics_sampling_domain(
 def _get_physics_points_and_context(
     heart_collocation_data,  # Now contains points and normals
     spatial_bounds, phys_batch_size, device,
-    current_data_batch_size, ecg_data_from_batch, sim_ids_from_batch,
-    sample_surface_points_fn
+    current_data_batch_size, ecg_data_from_batch, sim_ids_from_batch
 ):
     x_phys, y_phys, z_phys = None, None, None
     normals_phys = None  # For (nx, ny, nz)
@@ -169,7 +143,6 @@ def _calculate_physics_loss_components(
     wrapper, params_general,  # params_general might hold L_char_um if not in wrapper.model
     physics_weight, cv_reg_weight, normal_enforcement_weight,
     device,
-    eikonal_residual_fn,  # This argument is currently unused in your provided function
     create_graph_for_physics,  # True for training, False for validation
     epsilon=1e-8
 ):
@@ -285,7 +258,6 @@ def _train_one_epoch(
     heart_colloc_data, spatial_bounds,  # heart_colloc_data has points+normals
     physics_weight, cv_reg_weight, normal_enforcement_weight,  # Added NE weight
     phys_batch_size, batches_per_epoch, sample_phys_each_epoch,
-    eikonal_residual_fn, sample_surface_points_fn
 ):
     model.train()
     wrapper.start_new_epoch()
@@ -321,13 +293,13 @@ def _train_one_epoch(
             x_phys, y_phys, z_phys, normals_phys, ecg_phys_ctx, sim_ids_phys_ctx, actual_phys_bs = \
                 _get_physics_points_and_context(
                     heart_colloc_data, spatial_bounds, phys_batch_size, device,
-                    current_data_batch_size, ecg_d, sim_ids_d, sample_surface_points_fn
+                    current_data_batch_size, ecg_d, sim_ids_d
                 )
             if actual_phys_bs > 0:  # Check if points were actually sampled
                 pde_loss_batch, cv_reg_loss_batch, ne_loss_batch = _calculate_physics_loss_components(
                     x_phys, y_phys, z_phys, normals_phys, ecg_phys_ctx, sim_ids_phys_ctx,
                     wrapper, params_general, physics_weight, cv_reg_weight, normal_enforcement_weight, device,
-                    eikonal_residual_fn, create_graph_for_physics=True
+                    create_graph_for_physics=True
                 )
 
         start = 1 - 0.5
@@ -359,8 +331,7 @@ def _validate_one_epoch(
     wrapper, model, val_loader, params_general, device,
     heart_colloc_data, spatial_bounds,  # heart_colloc_data has points+normals
     physics_weight, cv_reg_weight, normal_enforcement_weight,  # Added NE weight
-    phys_batch_size, batches_per_epoch, sample_phys_each_epoch,
-    eikonal_residual_fn, sample_surface_points_fn
+    phys_batch_size, batches_per_epoch, sample_phys_each_epoch
 ):
     model.eval()
     running_val_losses = {'total': 0.0, 'data': 0.0, 'pde': 0.0, 'cv_reg': 0.0, 'ne': 0.0, 're': 0.0}  # Added NE
@@ -394,7 +365,7 @@ def _validate_one_epoch(
                 x_val_phys, y_val_phys, z_val_phys, normals_val_phys, ecg_val_phys_ctx, sim_ids_val_phys_ctx, actual_val_phys_bs = \
                     _get_physics_points_and_context(
                         heart_colloc_data, spatial_bounds, phys_batch_size, device,
-                        current_val_batch_size, ecg_v, sim_ids_v, sample_surface_points_fn
+                        current_val_batch_size, ecg_v, sim_ids_v
                     )
                 if actual_val_phys_bs > 0:  # Check if points were actually sampled
                     with torch.enable_grad():
@@ -402,7 +373,7 @@ def _validate_one_epoch(
                             x_val_phys, y_val_phys, z_val_phys, normals_val_phys,
                             ecg_val_phys_ctx, sim_ids_val_phys_ctx,
                             wrapper, params_general, physics_weight, cv_reg_weight, normal_enforcement_weight, device,
-                            eikonal_residual_fn, create_graph_for_physics=False  # create_graph=False for validation
+                            create_graph_for_physics=False  # create_graph=False for validation
                         )
                     val_pde_loss_b = val_pde_calc.detach()
                     val_cv_reg_loss_b = val_cv_reg_calc.detach()
@@ -519,7 +490,6 @@ def train_pinnex_minibatch_with_ecg(wrapper,
             heart_colloc_data, spatial_bds,
             physics_weight, cv_reg_weight, normal_enforcement_weight,  # Pass NE weight
             phys_batch_size, batches_per_epoch, sample_phys_each_epoch,
-            eikonal_residual, sample_surface_points
         )
 
         histories['train_loss'].append(avg_train_losses['total'])
@@ -541,9 +511,7 @@ def train_pinnex_minibatch_with_ecg(wrapper,
                 wrapper, model_instance, val_loader, params, device,
                 heart_colloc_data, spatial_bds,
                 physics_weight, cv_reg_weight, normal_enforcement_weight,  # Pass NE weight
-                phys_batch_size, batches_per_epoch, sample_phys_each_epoch,
-                eikonal_residual, sample_surface_points
-            )
+                phys_batch_size, batches_per_epoch, sample_phys_each_epoch)
             histories['val_loss'].append(avg_val_losses['total'])
 
             print_string += (f"\n| Val Loss: {avg_val_losses['total']:.4e} (Data: {avg_val_losses['data']:.4e}, "
