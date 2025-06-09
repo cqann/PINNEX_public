@@ -26,7 +26,7 @@ def evaluate_pinnex(wrapper, val_loader, device):
         for batch in val_loader:
             batch_n += 1
             # Extract batch components
-            x_val, y_val, z_val, ecg_val, T_val, C_val, sim_ids = [b.to(device) for b in batch]
+            x_val, y_val, z_val, ecg_val, T_val, V_val, sim_ids = [b.to(device) for b in batch]
 
             T_pred, c_pred = wrapper(x_val, y_val, z_val, ecg_val, sim_ids=sim_ids)
             # Append results (move tensors to CPU for processing)

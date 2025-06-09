@@ -1,93 +1,49 @@
 import torch
 
 
-def eikonal_residual(x, y, z, ecg, wrapper, params, sim_ids=None):
+def eikonal_residual(
+    T_pred,         # (N, 1) Model's prediction for activation time
+    c_pred,         # (N, 1) Model's prediction for conduction velocity
+    dT_dx,          # (N, 1) Pre-computed gradient of T_pred w.r.t. x
+    dT_dy,          # (N, 1) Pre-computed gradient of T_pred w.r.t. y
+    dT_dz,          # (N, 1) Pre-computed gradient of T_pred w.r.t. z
+    epsilon=1e-8    # Small value for numerical stability
+):
     """
-    Compute the residual of the eikonal equation for electrocardiography of cardiomyocytes:
-      |∇T| = 1/c,
-    where T is the activation time predicted by the model and c is the conduction velocity.
+    Computes the residual of the Eikonal equation: |∇T| - 1/c.
+    This version assumes T_pred, c_pred, and spatial gradients of T_pred (dT_dx, dT_dy, dT_dz)
+    are provided as inputs.
 
-    Inputs:
-      x, y, z : torch.Tensors of shape (N,1) representing spatial coordinates.
-      ecg     : torch.Tensor of shape (N, n_leads, seq_len) containing ECG context.
-      wrapper : a PINN model whose forward pass predicts the activation time T; its forward expects (x, y, z, ecg)
-      params  : dictionary containing PDE constants, e.g.:
-                {
-                  'c' : 0.6   # conduction velocity (in appropriate units)
-                }
-      sim_ids : optional simulation identifiers.
+    Args:
+      T_pred (torch.Tensor): Predicted activation time, shape (N, 1).
+      c_pred (torch.Tensor): Predicted conduction velocity, shape (N, 1).
+      dT_dx (torch.Tensor): Gradient of T_pred w.r.t. x, shape (N, 1).
+      dT_dy (torch.Tensor): Gradient of T_pred w.r.t. y, shape (N, 1).
+      dT_dz (torch.Tensor): Gradient of T_pred w.r.t. z, shape (N, 1).
+      epsilon (float): Small constant for numerical stability (e.g., in sqrt and division).
 
     Returns:
-      residual : torch.Tensor of shape (N,1), the residual of the eikonal equation.
-                 A perfect solution would yield residual = 0.
+      torch.Tensor: The residual of the Eikonal equation, shape (N, 1).
     """
 
-    # 1) Forward pass: predict activation time T_pred (shape: (N,1))
-    T_pred, c_pred = wrapper(x, y, z, ecg, sim_ids=sim_ids)  # shape: (N,1)
+    # 1) Ensure all necessary inputs are provided
+    if T_pred is None:
+        raise ValueError("T_pred must be provided.")
+    if c_pred is None:
+        # If c_pred is essential for the residual and not provided, this is an issue.
+        # Depending on the Eikonal formulation, 1/c might be replaced or c handled differently.
+        # For this standard form, c_pred is required.
+        raise ValueError("c_pred must be provided for the Eikonal residual calculation.")
+    if any(g is None for g in [dT_dx, dT_dy, dT_dz]):
+        raise ValueError("Spatial gradients (dT_dx, dT_dy, dT_dz) must be provided.")
 
-    # 2) PDE parameter: conduction velocity c and its inverse
+    # 2) Compute the gradient magnitude |∇T| from pre-computed gradients
+    grad_T_norm_sq = dT_dx**2 + dT_dy**2 + dT_dz**2
+    grad_mag_T = torch.sqrt(grad_T_norm_sq + epsilon)
 
-    # 3) Compute spatial derivatives via autograd
-    dT_dx = torch.autograd.grad(
-        T_pred, x,
-        grad_outputs=torch.ones_like(T_pred),
-        create_graph=True
-    )[0]
-    dT_dy = torch.autograd.grad(
-        T_pred, y,
-        grad_outputs=torch.ones_like(T_pred),
-        create_graph=True
-    )[0]
-    dT_dz = torch.autograd.grad(
-        T_pred, z,
-        grad_outputs=torch.ones_like(T_pred),
-        create_graph=True
-    )[0]
+    # 3) Build the Eikonal PDE residual: |∇T| - 1/c
+    # Add epsilon to c_pred in the denominator for numerical stability.
+    # c_pred is expected to be positive.
+    residual = grad_mag_T - 1.0 / (c_pred + epsilon)
 
-    # 4) Compute the gradient magnitude |∇T|
-    grad_mag = torch.sqrt(dT_dx**2 + dT_dy**2 + dT_dz**2)
-
-    # 5) Build the eikonal PDE residual: |∇T| * c - 1
-    residual = grad_mag * c_pred - 1.0
-
-    return residual
-
-
-def check_eikonal_residual_with_trivial_solution(model_class, model_wrapper, params, device='cpu'):
-    """
-    Quick check to see if the eikonal PDE residual is near zero for a trivial solution.
-
-    The chosen trivial solution is:
-         T(x,y,z) = sqrt(x^2 + y^2 + z^2) / c,
-    which analytically satisfies |∇T| = 1/c.
-    """
-
-    # Create a trivial model that implements the analytical solution.
-    class TrivialEikonalModel(model_class):
-        def forward(self, x, y, z, ecg):
-            c = params['c']
-            # Add a small epsilon for numerical stability at the origin.
-            r = torch.sqrt(x**2 + y**2 + z**2 + 1e-6)
-            return r / c
-
-    trivial_model = model_wrapper(TrivialEikonalModel()).to(device)
-
-    N = 10
-    x = torch.rand(N, 1, device=device)
-    y = torch.rand(N, 1, device=device)
-    z = torch.rand(N, 1, device=device)
-
-    # Ensure gradients are tracked for spatial variables.
-    x.requires_grad_(True)
-    y.requires_grad_(True)
-    z.requires_grad_(True)
-
-    # Create a dummy ECG tensor of shape (N, n_leads, seq_len)
-    n_leads = 12
-    seq_len = 1000
-    ecg_dummy = torch.zeros(N, n_leads, seq_len, device=device)
-
-    residual = eikonal_residual(x, y, z, ecg_dummy, trivial_model, params)
-
-    print(f"Mean(|residual|): {residual.abs().mean().item():.6e}")
     return residual

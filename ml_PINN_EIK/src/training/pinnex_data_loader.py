@@ -165,11 +165,9 @@ def get_dataloaders(spatiotemp_path, ecg_path, batch_size=128, val_ratio=0.2, se
     ecg_dict = load_ecg_dict(ecg_path)
 
     df_train, df_val = split_train_val_df(df_spatial, val_ratio=val_ratio, random_sample=False, seed=seed)
-    # df_val, df_test = split_train_val_df(df_ext, val_ratio=0.2, random_sample=False)
 
     train_dataset = SpatiotemporalECGDataset(df_train, ecg_dict)
     val_dataset = SpatiotemporalECGDataset(df_val, ecg_dict)
-    # test_dataset = SpatiotemporalECGDataset(df_test, ecg_dict)
 
     train_loader = DataLoader(train_dataset,
                               batch_size=batch_size,
@@ -184,13 +182,5 @@ def get_dataloaders(spatiotemp_path, ecg_path, batch_size=128, val_ratio=0.2, se
                             collate_fn=collate_fn,
                             num_workers=4,
                             pin_memory=True)
-    '''
-    test_loader = DataLoader(val_dataset,
-                        batch_size=batch_size,
-                        shuffle=False,
-                        collate_fn=collate_fn,
-                        num_workers=4,
-                        pin_memory=True)
 
-    '''
-    return train_loader, val_loader  # , test_loader
+    return train_loader, val_loader
