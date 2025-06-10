@@ -26,6 +26,7 @@ class SpatiotemporalECGDataset(Dataset):
         self.y = torch.tensor(df_spatial['y'].values, dtype=torch.float32).view(-1, 1)
         self.z = torch.tensor(df_spatial['z'].values, dtype=torch.float32).view(-1, 1)
         self.T = torch.tensor(df_spatial['T'].values, dtype=torch.float32).view(-1, 1)
+
         if 'cv' in df_spatial.columns:
             self.V = torch.tensor(df_spatial['cv'].values, dtype=torch.float32).view(-1, 1)
         else:
@@ -34,6 +35,7 @@ class SpatiotemporalECGDataset(Dataset):
             num_rows = len(df_spatial)
             self.V = torch.full((num_rows, 1), float(0), dtype=torch.float32)
             print("Warning: 'cv' column not found in df_spatial. Using 0 as a placeholder for V.")
+
         self.sim_id = torch.tensor(df_spatial['sim_id'].values, dtype=torch.int32).view(-1)
 
         # Save the dictionary for lookups
@@ -117,15 +119,25 @@ def load_ecg_dict(ecg_path):
     return ecg_dict
 
 
-def split_train_val_df(df_spatial, val_ratio=0.2, random_sample=False, seed=None):  # Added seed argument
+def split_train_val_df(df_spatial, val_ratio=0.2, random_sample=False, seed=None, group_by_delay_variant=False):
     """
     Splits the DataFrame into training and validation sets.
 
-    If random_sample is False (default), split by sim_id to ensure all data points
-    from a simulation are either in train or val. This split is reproducible if a seed is provided.
-
-    If random_sample is True, perform a standard random row-wise split, ignoring sim_id.
-    This split is reproducible if a seed is provided.
+    Parameters:
+    ----------
+    df_spatial : pd.DataFrame
+        DataFrame containing at least 'sim_id'.
+    val_ratio : float
+        Proportion of the dataset to allocate to the validation set.
+    random_sample : bool
+        If True, perform a standard random row-wise split, ignoring sim_id grouping.
+        If False (default), split by sim_id or base_sim_id (if group_by_delay_variant is True).
+    seed : int, optional
+        Random seed for reproducible splits.
+    group_by_delay_variant : bool
+        If True, assumes the last digit of 'sim_id' is a delay variant.
+        Splits will be made based on 'sim_id' excluding the last digit,
+        ensuring all delay variants of a base simulation stay in the same set.
     """
     if random_sample:
         # Use the seed for df.sample's random_state for reproducible row-wise shuffling
@@ -133,26 +145,66 @@ def split_train_val_df(df_spatial, val_ratio=0.2, random_sample=False, seed=None
         num_val = int(len(df_shuffled) * val_ratio)
         df_val = df_shuffled.iloc[:num_val].copy()
         df_train = df_shuffled.iloc[num_val:].copy()
+        print(f"Random sample split: {len(df_train)} train rows, {len(df_val)} val rows.")
+    elif group_by_delay_variant:
+        # Create a 'base_sim_id' by removing the last digit
+        # Ensure sim_id is treated as integer for the division
+        df_spatial['_base_sim_id_temp'] = (df_spatial['sim_id'].astype(int) // 10)
+        unique_base_sim_ids = df_spatial['_base_sim_id_temp'].unique()
+
+        rng = np.random.RandomState(seed)  # Initialize RandomState with the seed
+        rng.shuffle(unique_base_sim_ids)  # Shuffle in place
+
+        num_val_base_ids = int(len(unique_base_sim_ids) * val_ratio)
+        # Ensure at least one validation base ID if val_ratio > 0 and there are enough unique base IDs
+        if num_val_base_ids == 0 and val_ratio > 0 and len(unique_base_sim_ids) > 0:
+            num_val_base_ids = 1
+
+        val_base_sim_ids = unique_base_sim_ids[:num_val_base_ids]
+
+        if seed is not None:
+            print(f"Splitting by base_sim_id (delay variant grouping active, using seed {seed}).")
+            print(f"Total unique base_sim_ids: {len(unique_base_sim_ids)}")
+            print(f"Number of base_sim_ids for validation: {num_val_base_ids}")
+            print(f"Validation base_sim_ids: {val_base_sim_ids.tolist()}")
+
+        df_val = df_spatial[df_spatial['_base_sim_id_temp'].isin(val_base_sim_ids)].copy()
+        df_train = df_spatial[~df_spatial['_base_sim_id_temp'].isin(val_base_sim_ids)].copy()
+
+        # Clean up the temporary column
+        df_train = df_train.drop(columns=['_base_sim_id_temp'])
+        df_val = df_val.drop(columns=['_base_sim_id_temp'])
+
+        print(f"Split by base_sim_id: {len(df_train)} train rows (from {df_train['sim_id'].nunique()} unique sim_ids), "
+              f"{len(df_val)} val rows (from {df_val['sim_id'].nunique()} unique sim_ids).")
     else:
+        # Original split by unique sim_id
         unique_sim_ids = df_spatial['sim_id'].unique()
 
-        # Use the seed for np.random.RandomState to ensure reproducible shuffling of sim_ids
         rng = np.random.RandomState(seed)  # Initialize RandomState with the seed
         rng.shuffle(unique_sim_ids)  # Shuffle in place
 
-        num_val = int(len(unique_sim_ids) * val_ratio)
-        val_sim_ids = unique_sim_ids[:num_val]
+        num_val_ids = int(len(unique_sim_ids) * val_ratio)
+        # Ensure at least one validation ID if val_ratio > 0 and there are enough unique IDs
+        if num_val_ids == 0 and val_ratio > 0 and len(unique_sim_ids) > 0:
+            num_val_ids = 1
+
+        val_sim_ids = unique_sim_ids[:num_val_ids]
 
         if seed is not None:  # Log if a seed is used for easier debugging/verification
-            print(f"Validation sim_ids (using seed {seed}): {val_sim_ids.tolist()}")  # .tolist() for cleaner printing
+            print(f"Splitting by sim_id (using seed {seed}).")
+            print(f"Total unique sim_ids: {len(unique_sim_ids)}")
+            print(f"Number of sim_ids for validation: {num_val_ids}")
+            print(f"Validation sim_ids: {val_sim_ids.tolist()}")
 
         df_val = df_spatial[df_spatial['sim_id'].isin(val_sim_ids)].copy()
         df_train = df_spatial[~df_spatial['sim_id'].isin(val_sim_ids)].copy()
+        print(f"Split by sim_id: {len(df_train)} train rows, {len(df_val)} val rows.")
 
     return df_train, df_val
 
 
-def get_dataloaders(spatiotemp_path, ecg_path, batch_size=128, val_ratio=0.2, seed=None):
+def get_dataloaders(spatiotemp_path, ecg_path, batch_size=128, val_ratio=0.2, seed=None, group_by_delay_variant=False):
     """
     1) Load spatial DataFrame from parquet (columns: x, y, z, T, sim_id)
     2) Load ECG dictionary from parquet.
@@ -163,8 +215,10 @@ def get_dataloaders(spatiotemp_path, ecg_path, batch_size=128, val_ratio=0.2, se
 
     df_spatial = load_spatiotemp_df(spatiotemp_path)
     ecg_dict = load_ecg_dict(ecg_path)
+    # df_spatial = df_spatial[df_spatial["sim_id"] >= 20000]
 
-    df_train, df_val = split_train_val_df(df_spatial, val_ratio=val_ratio, random_sample=False, seed=seed)
+    df_train, df_val = split_train_val_df(df_spatial, val_ratio=val_ratio,
+                                          random_sample=False, seed=seed, group_by_delay_variant=group_by_delay_variant)
 
     train_dataset = SpatiotemporalECGDataset(df_train, ecg_dict)
     val_dataset = SpatiotemporalECGDataset(df_val, ecg_dict)
@@ -178,9 +232,17 @@ def get_dataloaders(spatiotemp_path, ecg_path, batch_size=128, val_ratio=0.2, se
 
     val_loader = DataLoader(val_dataset,
                             batch_size=batch_size,
-                            shuffle=False,
+                            shuffle=True,
                             collate_fn=collate_fn,
                             num_workers=4,
                             pin_memory=True)
+    '''
+    test_loader = DataLoader(val_dataset,
+                        batch_size=batch_size,
+                        shuffle=False,
+                        collate_fn=collate_fn,
+                        num_workers=4,
+                        pin_memory=True)
 
+    '''
     return train_loader, val_loader
