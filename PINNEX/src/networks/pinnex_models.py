@@ -86,77 +86,6 @@ class PDE_Encoder(nn.Module):
         return z_pde
 
 
-class ECG_Encoder(nn.Module):
-    """
-    1D CNN-based encoder for ECG signals.
-    Uses hidden_architecture for the fully connected layers after the CNN part.
-    Now has a parameter `n_blocks` to repeat the CNN block structure.
-    """
-
-    def __init__(self, n_leads=12, seq_len=1000, latent_dim=64,
-                 hidden_architecture=[128], n_blocks=2):
-        super().__init__()
-
-        # Create repeated blocks
-        # Each block: BN -> ReLU -> Conv -> BN -> ReLU -> Dropout -> Conv -> MaxPool
-        self.blocks = nn.ModuleList()
-        current_channels = n_leads
-        # Define desired channels for each block
-        desired_channels = [16, 16, 32, 32]  # For n_blocks=2; adjust accordingly if n_blocks changes
-        for i in range(n_blocks):
-            out_channels = desired_channels[i]
-            block = nn.Sequential(
-                nn.BatchNorm1d(current_channels),
-                nn.ReLU(),
-                nn.Conv1d(current_channels, out_channels, kernel_size=4, stride=1, padding=1),
-                nn.BatchNorm1d(out_channels),
-                nn.ReLU(),
-                nn.Dropout(p=0.2),
-                nn.Conv1d(out_channels, out_channels, kernel_size=4, stride=1, padding=1),
-                nn.MaxPool1d(kernel_size=2, stride=2)
-            )
-            self.blocks.append(block)
-            current_channels = out_channels
-
-        self.latent_dim = latent_dim
-
-        # Determine output dimension after all blocks, via a dummy pass
-        with torch.no_grad():
-            dummy = torch.zeros(1, n_leads, seq_len)
-            x = dummy
-            for block in self.blocks:
-                x = block(x)
-            flattened_dim = x.view(1, -1).size(1)
-
-        # Build the fully connected network
-        fc_layers = []
-        if hidden_architecture:
-            fc_layers.append(nn.Linear(flattened_dim, hidden_architecture[0]))
-            fc_layers.append(nn.ReLU())
-            for i in range(len(hidden_architecture) - 1):
-                fc_layers.append(nn.Linear(hidden_architecture[i], hidden_architecture[i + 1]))
-                fc_layers.append(nn.ReLU())
-            last_dim = hidden_architecture[-1]
-        else:
-            last_dim = flattened_dim
-
-        fc_layers.append(nn.Linear(last_dim, latent_dim))
-        self.fc_net = nn.Sequential(*fc_layers)
-
-    def forward(self, ecg):
-        x = ecg
-        for block in self.blocks:
-            x = block(x)
-
-        x = x.view(x.size(0), -1)
-        z_ecg = self.fc_net(x)
-        return z_ecg
-
-# -----------------------------
-# A small ResidualBlock for skip connections
-# -----------------------------
-
-
 class ECG_Encoder_With_Skips(nn.Module):
     """
     1D CNN-based encoder for ECG signals with residual skip connections.
@@ -182,9 +111,7 @@ class ECG_Encoder_With_Skips(nn.Module):
             elif n_blocks == 3:
                 desired_channels_per_block = [16, 32, 64]
             elif n_blocks == 4:  # Example similar to original code's comment context
-
                 desired_channels_per_block = [16, 16, 32, 32]
-                desired_channels_per_block = [16, 32, 64, 128]
 
             else:  # Generic fallback for other n_blocks values
                 ch = 16
@@ -368,7 +295,8 @@ class PINNWithECG(nn.Module):
         n_blocks=4,
         seq_len=1000,
         fusion_mode="gated",
-        decoder_use_skip=False
+        decoder_use_skip=False,
+        desired_channels_per_block=None  # e.g., [16, 32] for n_blocks=2
     ):
         super().__init__()
         self.t_scale = params["t_scale"]
@@ -389,7 +317,8 @@ class PINNWithECG(nn.Module):
             seq_len=seq_len,
             latent_dim=ecg_latent_dim,
             hidden_architecture=ecg_hidden_architecture,
-            n_blocks=n_blocks
+            n_blocks=n_blocks,
+            desired_channels_per_block=desired_channels_per_block  # Let it use the default progression
         )
 
         self.fusion_mode = fusion_mode

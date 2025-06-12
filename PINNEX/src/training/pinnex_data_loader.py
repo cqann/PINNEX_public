@@ -236,13 +236,5 @@ def get_dataloaders(spatiotemp_path, ecg_path, batch_size=128, val_ratio=0.2, se
                             collate_fn=collate_fn,
                             num_workers=num_workers,
                             pin_memory=True)
-    '''
-    test_loader = DataLoader(val_dataset,
-                        batch_size=batch_size,
-                        shuffle=False,
-                        collate_fn=collate_fn,
-                        num_workers=4,
-                        pin_memory=True)
 
-    '''
     return train_loader, val_loader
