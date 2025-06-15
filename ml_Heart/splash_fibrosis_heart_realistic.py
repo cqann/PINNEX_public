@@ -14,7 +14,7 @@ from carputils import ep
 from carputils.carpio import txt
 import math
 from scipy.signal import iirfilter, filtfilt
-import pandas as pd  # <-- Import pandas
+import pandas as pd  
 import random
 import subprocess
 from plot_ecg import generate_ecg_plot_simple
@@ -175,10 +175,8 @@ def run(args, job):
         10,
     ]
 
-    # Combine them into a single parameter list
     all_stims = stim_0 + stim_1 + stim_2 + stim_3 + stim_4
 
-    # ecg = ["-phie_rec_ptf", os.path.join(torso_folder, "electrodes")]
     ecg = [
         "-phie_rec_ptf",
         os.path.join(mesh_folder, "leads_placement"),
@@ -242,7 +240,7 @@ def setup_ionic():
         "-imp_region[0].im",
         "MitchellSchaeffer",
         "-imp_region[0].num_IDs",
-        3,  # Two element tags (IDs) for the same region
+        3,  
         "-imp_region[0].ID[0]",
         "1",
         "-imp_region[0].ID[1]",

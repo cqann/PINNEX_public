@@ -17,8 +17,6 @@ import random
 import subprocess
 
 
-# This sets up where we store the output of the experiment
-# This sets up where we store the output of the experiment
 def parser():
     parser = tools.standard_parser()
     group = parser.add_argument_group("experiment specific options")
