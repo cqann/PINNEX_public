@@ -31,7 +31,7 @@ def parser():
     group.add_argument(
         "--duration",
         type=float,
-        default=100.0,
+        default=50.0,
         help="Duration of simulation (ms).",
     )
 
@@ -88,15 +88,14 @@ def jobID(args):
 @tools.carpexample(parser, jobID)
 def run(args, job):
     num_leads = 8
-    model = "ttpn"
 
     # ---------------------------------------
     # 1 : Define the mesh geometry
     # ---------------------------------------
     x = 20  # (mm)
     y = 20  # (mm)
-    z = 2.5   # (mm)
-    res = 0.25
+    z = 1   # (mm)
+    res = 0.4
 
     geom = mesh.Block(
         centre=(0.0, 0.0, 0.0),
@@ -121,7 +120,11 @@ def run(args, job):
     meshname = mesh.generate(geom, rootdir=unique_dir)
 
     # Add fibrosis
-    setup_fibrois(meshname, args, (x, y, z), 3500)  # 3500=1patch 2600=splash
+
+    fibrosis_size = (2400, 0.4)
+    fibrosis_size = (3500, 0.3)
+
+    setup_fibrois(meshname, args, (x, y, z), fibrosis_size)  # 3500=1patch 2600=splash
 
     # Now, query the updated element tags for conduction
     _, new_etags, _ = txt.read(meshname + ".elem")
@@ -132,7 +135,7 @@ def run(args, job):
     # ---------------------------------------
     # 2 : Define ionic models & conductivities
     # ---------------------------------------
-    imp_reg = setup_ionic(args, model)
+    imp_reg = setup_ionic(args)
     g_reg = setup_gregions(args)
 
     # ---------------------------------------
@@ -141,7 +144,7 @@ def run(args, job):
     stim = [
         "-num_stim", 1,
         "-stim[0].crct.type", 0,
-        "-stim[0].pulse.strength", 2000.0,
+        "-stim[0].pulse.strength", 1000.0,
         "-stim[0].ptcl.duration", 2.0,
         "-stim[0].ptcl.npls", 1,
         "-stim[0].ptcl.start", 0,
@@ -188,16 +191,6 @@ def run(args, job):
     if args.visualize:
         cmd += ["-gridout_i", 3, "-gridout_e", 3]
 
-    if model == "AlievPanfilov":
-        cmd += [
-            "-num_gvecs", 1,
-            "-gvec[0].name", "V",
-            "-gvec[0].units", "mV",
-            "-gvec[0].imp", "AlievPanfilov",
-            "-gvec[0].ID[0]", "V",
-            "-gvec[0].bogus", 0
-        ]
-
     cmd += [
         "-num_phys_regions", "1",
         "-phys_region[0].ptype", "2",  # 2 = PHYSREG_EIKONAL
@@ -227,36 +220,23 @@ def run(args, job):
         job.meshalyzer(geom_i, data_vm, aux_ecg, view_vm)
 
 
-def setup_ionic(args, model="ttpn"):
-    """Configure ionic parameters for either 'ttpn' or 'courtemanche' models."""
-    if model == "ttpn":
-        im_name = "tenTusscherPanfilov"
-        fibrotic_params = "GNa*0.4,GK1*0.5,GCaL*0.5,GKr*0.6"
-    elif model == "courtemanche":
-        im_name = "Courtemanche"
-        fibrotic_params = "GNa*0.4,GK1*0.5,GCaL*0.5"
-    elif model == "AlievPanfilov":
-        im_name = "AlievPanfilov"
-        fibrotic_params = "mu1*0.4,mu2*0.5"
-    else:
-        return "model not implemented"
-
-    n_regions = 3 if args.fibrosis_vol_fraction > 0 or args.n_patches > 0 else 1
-
-    imp_reg = ["-num_imp_regions", n_regions]
-    imp_names = ["healthy", "fibrotic", "non-conductive"]
-
-    for i in range(n_regions):
-        imp_reg.extend([
-            f"-imp_region[{i}].im", im_name,
-            f"-imp_region[{i}].num_IDs", 1,
-            f"-imp_region[{i}].ID[0]", str(i + 1),
-            f"-imp_region[{i}].name", imp_names[i],
-        ])
-        if i == 1:  # Region 3 (fibrotic)
-            imp_reg.extend(["-imp_region[1].im_param", fibrotic_params])
-        elif i == 0 and model == "AlievPanfilov":
-            imp_reg.extend(["-imp_region[0].im_sv_dumps", "V"])
+def setup_ionic(args):
+    imp_reg = [
+        "-num_imp_regions",
+        1,
+        "-imp_region[0].im",
+        "MitchellSchaeffer",
+        "-imp_region[0].num_IDs",
+        3,  # Two element tags (IDs) for the same region
+        "-imp_region[0].ID[0]",
+        "1",
+        "-imp_region[0].ID[1]",
+        "2",
+        "-imp_region[0].ID[2]",
+        "3",
+        "-imp_region[0].im_param",
+        "V_max=40.0,V_min=-86.2, tau_in = 0.3, tau_out=5.4,tau_open =80, tau_close=175",
+    ]
     return imp_reg
 
 
@@ -269,9 +249,9 @@ def setup_gregions(args):
       => anisotropy ratio ~ 2.5x
     Region 6 = non-conductive => set conduction to 0.
     """
-    CV_healthy = 500  # (mm/ms)
-    CV_ar = 1 / 0.42
-    CV_ar = 1
+    CV_healthy = 810  # (mm/ms)
+    CV_ar = 1 / 0.42  # (isotropic, 0.42 is the anisotropy ratio for healthy tissue)
+    CV_ar = 1  # overwriting to keep isotropic
 
     g_reg = [
         "-num_gregions", (3 if args.fibrosis_vol_fraction > 0 or args.n_patches > 0 else 1),
@@ -282,100 +262,171 @@ def setup_gregions(args):
         "-gregion[0].CV.vel", CV_healthy,
         "-gregion[0].CV.ar_t", CV_ar,
         "-gregion[0].CV.ar_n", CV_ar,
+        "-gregion[0].g_bath", 0.22,
     ]
 
     if args.fibrosis_vol_fraction == 0 and args.n_patches == 0:
         return g_reg
 
     g_reg += [
-        # region 2 => tag=3, fibrotic myocytes
+        # region 2 => tag=3, fibrotic core
         "-gregion[1].num_IDs", 1,
         "-gregion[1].ID[0]", 2,
-        "-gregion[1].CV.vel", CV_healthy * 0.25,
+        "-gregion[1].CV.vel", CV_healthy / 2.3,
         "-gregion[1].CV.ar_t", CV_ar,
         "-gregion[1].CV.ar_n", CV_ar,
 
 
-        # region 5 => tag=6, non-conductive ECM
+        # region 5 => tag=6, fibrotic border
         "-gregion[2].num_IDs", 1,
         "-gregion[2].ID[0]", 3,
-        "-gregion[2].CV.vel", CV_healthy * 0.25,
+        "-gregion[2].CV.vel", CV_healthy / 1.71,
         "-gregion[2].CV.ar_t", CV_ar,
         "-gregion[2].CV.ar_n", CV_ar,
     ]
     return g_reg
 
 
-def setup_fibrois(meshname, args, mesh_sz, dot_size):
-    # Define fibrotic regions
-    x, y, z = mesh_sz
+def setup_fibrois(meshname, args, mesh_sz, fiboris_size):
+    """
+    Sets up fibrotic regions in a mesh with a core and border zone.
+
+    Fibrosis is generated by placing patches. Each patch has a dense core
+    (tag 3) and a surrounding border zone (tag 2). The placement and size
+    are determined by input arguments.
+    """
+    mesh_dim_x, mesh_dim_y, mesh_dim_z = mesh_sz
     elems, etags, nelems = txt.read(meshname + ".elem")
+    dot_size, size_factor = fiboris_size  # Characteristic size of a patch in microns
     splash = args.n_patches == 0 and args.fibrosis_vol_fraction > 0
 
-    fibrotic_points = []
-    fibrotic_tetra_set = set()
+    # Global sets to accumulate tetrahedra indices for all patches
+    overall_border_tetra = set()  # Tetra in the larger radius (max_radius) for any patch
+    overall_core_tetra = set()   # Tetra in the smaller radius (small_radius) for any patch
+
+    # Map vertex indices to tetrahedra indices
     vertex_to_tetra = {}
-    for i, tet in enumerate(elems):
-        for vertex in tet:
-            vertex_to_tetra.setdefault(vertex, []).append(i)
+    for i, tet_vertices in enumerate(elems):
+        for vertex_idx in tet_vertices:
+            vertex_to_tetra.setdefault(vertex_idx, []).append(i)
 
-    n_tissue_elems = len([x for x in etags if x != 0])
-    fib_regs = 0
+    # Count initial number of tissue elements (etags != 0)
+    n_tissue_elems = 0
+    for tag_value in etags:
+        if tag_value != 0:
+            n_tissue_elems += 1
 
-    random.seed(args.seed)
+    patches_generated = 0
+    random.seed(args.seed)  # Initialize random seed
+
+    # Main loop to generate fibrotic patches
     while True:
-        if not splash and fib_regs >= args.n_patches:
-            break
-        elif splash and len(fibrotic_tetra_set) > args.fibrosis_vol_fraction * n_tissue_elems:
-            break
-        fibrotic_seed_x = random.uniform(0, 1)
-        fibrotic_seed_y = random.uniform(0, 1)
-        fibrotic_seed_z = random.uniform(0, 1)
+        if not splash:  # Fixed number of patches mode
+            if patches_generated >= args.n_patches:
+                break
+        else:  # Splash mode (target volume fraction)
+            # Calculate current fibrotic volume (based on border zone tetra that are tissue)
+            current_fibrotic_tissue_tetra_count = 0
+            for tetra_idx in overall_border_tetra:
+                if etags[tetra_idx] != 0:  # Check original tag
+                    current_fibrotic_tissue_tetra_count += 1
 
-        if (fibrotic_seed_x ** 2 + (fibrotic_seed_y - 0.5) ** 2) <= 0.15:
+            if n_tissue_elems == 0:  # Avoid division by zero if no tissue elements
+                if args.fibrosis_vol_fraction > 0:
+                    # If fibrosis is desired but no tissue exists, stop to prevent infinite loop.
+                    break
+            elif current_fibrotic_tissue_tetra_count / n_tissue_elems > args.fibrosis_vol_fraction:
+                break
+
+        # Generate a random seed point for the new patch (normalized coordinates)
+        seed_norm_x = random.uniform(0, 1)
+        seed_norm_y = random.uniform(0, 1)
+        seed_norm_z = 0.5
+
+        # Apply geometric constraint (e.g., cylindrical exclusion zone from original logic)
+        if (seed_norm_x**2 + (seed_norm_y - 0.5)**2) <= 0.15:  # Check on normalized coordinates
             continue
 
-        fibrotic_seed_x = fibrotic_seed_x * x * 1000
-        fibrotic_seed_y = fibrotic_seed_y * y * 1000
-        fibrotic_seed_z = fibrotic_seed_z * z * 1000
+        # Scale normalized coordinates to actual mesh coordinates for meshtool
+        # Assuming mesh_sz (dims x,y,z) are in mm, and meshtool -coord expects microns
+        actual_seed_x = seed_norm_x * mesh_dim_x * 1000
+        actual_seed_y = seed_norm_y * mesh_dim_y * 1000
+        actual_seed_z = seed_norm_z * mesh_dim_z * 1000
 
-        mean_target = dot_size  # Expected value
-        low, high = mean_target * 0.5, mean_target * 2  # Typical range
-        sigma = math.log(high / mean_target) / 2  # Rough estimation
-        mu = math.log(mean_target) - (sigma ** 2) / 2
-        thr_radius = random.lognormvariate(mu, sigma)
-        thr_radius = random.uniform(0.7 * dot_size, 1.3 * dot_size)  # random.uniform(0.5 * dot_size, 1.5 * dot_size)
-        command = ["meshtool", "query", "idx", "-msh=" + meshname,
-                   f"-coord={fibrotic_seed_x},{fibrotic_seed_y},{fibrotic_seed_z}", f"-thr={thr_radius}"]
+        # Define radii for the current patch's border and core zones
+        # dot_size is the characteristic size of a patch, assumed to be in microns (like meshtool -thr)
+        min_radius = dot_size * math.exp(-size_factor)
+        max_radius = dot_size * math.exp(size_factor)
 
+        current_patch_radius = random.uniform(min_radius, max_radius)  # Random size for the patch)
+
+        current_patch_core_radius = current_patch_radius * 0.5  # Core radius is 50% of the patch's max radius
+
+        # --- Query meshtool for vertices within the border zone (larger radius) ---
+        border_points_this_patch = []
+        cmd_border = ["meshtool", "query", "idx", f"-msh={meshname}",
+                      f"-coord={actual_seed_x},{actual_seed_y},{actual_seed_z}",
+                      f"-thr={current_patch_radius}"]
         try:
-            result = subprocess.run(command, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd_border, capture_output=True, text=True, check=True)
             str_split = result.stdout.split("Vertex list:")
-            if len(str_split) != 2:
-                fibrotic_points = []
-            else:
-                fibrotic_points = [int(x) for x in str_split[1].strip().split(",")]
-
+            # Ensure vertex list exists and is not empty before parsing
+            if len(str_split) == 2 and str_split[1].strip():
+                border_points_this_patch = [int(p) for p in str_split[1].strip().split(",")]
         except subprocess.CalledProcessError as e:
-            print("Error executing meshtool command:")
-            print(e.stderr)
-            return
+            print(f"Warning: meshtool error for border zone query: {e.stderr.strip()}")
+            continue  # Skip this patch attempt if meshtool fails
 
-        fibrotic_tetra = set()
-        for vertex in fibrotic_points:
-            fibrotic_tetra.update(vertex_to_tetra.get(vertex, []))
-        fibrotic_tetra = list(fibrotic_tetra)
-        fibrotic_tetra_set = fibrotic_tetra_set.union(set(fibrotic_tetra))
-        fib_regs += 1
+        # --- Query meshtool for vertices within the core zone (smaller radius) ---
+        core_points_this_patch = []
+        cmd_core = ["meshtool", "query", "idx", f"-msh={meshname}",
+                    f"-coord={actual_seed_x},{actual_seed_y},{actual_seed_z}",
+                    f"-thr={current_patch_core_radius}"]
+        try:
+            result = subprocess.run(cmd_core, capture_output=True, text=True, check=True)
+            str_split = result.stdout.split("Vertex list:")
+            if len(str_split) == 2 and str_split[1].strip():
+                core_points_this_patch = [int(p) for p in str_split[1].strip().split(",")]
+        except subprocess.CalledProcessError as e:
+            print(f"Warning: meshtool error for core zone query: {e.stderr.strip()}")
+            continue  # Skip this patch attempt
 
-    fibrotic_tetras = [i for i in fibrotic_tetra_set if etags[i] != 0]
-    random.shuffle(fibrotic_tetras)
-    etags[fibrotic_tetras] = 2
+        # Convert vertex lists to sets of tetrahedra indices for the current patch
+        patch_border_tetra = set()
+        for v_idx in border_points_this_patch:
+            patch_border_tetra.update(vertex_to_tetra.get(v_idx, []))
 
-    # Write the updated data
-    # IMPORTANT: 'elems' must remain shape (N,4) for Tt or (N,8) for Hx, etc.
-    # 'etags=etags' is a keyword argument.
+        patch_core_tetra = set()
+        for v_idx in core_points_this_patch:
+            patch_core_tetra.update(vertex_to_tetra.get(v_idx, []))
 
+        # Add this patch's tetrahedra to the overall accumulation sets
+        if not patch_border_tetra and not patch_core_tetra and args.n_patches > 0:  # if patch is empty, don't count it unless in splash
+            # if we want N patches, an empty patch is a failed attempt for that N, so we shouldn't inc patches_generated
+            # and should retry to get a non-empty patch.
+            # However, if an area is truly sparse, this could loop. For now, count the attempt.
+            pass  # or continue to retry for a non-empty patch, depends on desired behavior for empty meshtool results
+
+        overall_border_tetra.update(patch_border_tetra)
+        overall_core_tetra.update(patch_core_tetra)
+
+        patches_generated += 1
+    print("Generated {} patches.".format(patches_generated))
+    # --- Update etags for fibrotic regions ---
+    # Tag 2 for border zone, Tag 3 for core zone.
+    # Core (tag 3) should override Border (tag 2) if a tetrahedron is in both.
+    # This is achieved by first tagging all border elements, then all core elements.
+    # Only modify etags of elements that were originally tissue (original tag != 0).
+
+    for tetra_idx in overall_border_tetra:
+        if etags[tetra_idx] != 0:  # Check if it's a tissue element
+            etags[tetra_idx] = 2  # Mark as border zone
+
+    for tetra_idx in overall_core_tetra:
+        if etags[tetra_idx] != 0:  # Check if it's a tissue element (could have been marked 2 already)
+            etags[tetra_idx] = 3  # Mark (or re-mark) as core zone
+
+    # Write the updated element data (elems and modified etags)
     txt.write(meshname + ".elem", elems, etags=etags)
 
 
@@ -467,107 +518,6 @@ def writeECGgrid(meshname, mesh_sz, num_points, res, bath_size_factor):
     else:
         node_indices = np.array(node_indices, dtype=int).reshape(-1, 1)
         txt.write("ecg.pts", node_indices)
-
-
-def igb_reader(igb_filename):
-    """
-    Reads an IGB file into NumPy arrays using openCARP command-line
-    utilities igbhead and igbextract. Uses -o asciiTm so each line
-    contains: [time, val_node0, val_node1, ..., val_node{n-1}].
-    """
-
-    # 1) Gather header metadata -----------------------------------------
-    cmd_head = ["igbhead", igb_filename]
-    try:
-        result = subprocess.run(cmd_head, capture_output=True, text=True, check=True)
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Error running igbhead on {igb_filename}:\n{e.stderr}")
-
-    header_output = result.stdout.splitlines()
-
-    xdim = ydim = zdim = 1
-    tdim = 1
-    dt = None
-    t_origin = 0.0
-
-    for line in header_output:
-        line_low = line.strip().lower()
-        if line_low.startswith("x dimension:"):
-            xdim = int(line.split(":")[1])
-        elif line_low.startswith("y dimension:"):
-            ydim = int(line.split(":")[1])
-        elif line_low.startswith("z dimension:"):
-            zdim = int(line.split(":")[1])
-        elif line_low.startswith("t dimension:"):
-            tdim = int(line.split(":")[1])
-        elif line_low.startswith("increment in t:"):
-            dt_str = line.split(":")[1].strip()
-            dt = float(dt_str)
-        elif line_low.startswith("t origin:"):
-            t_origin_str = line.split(":")[1].strip()
-            t_origin = float(t_origin_str)
-
-    n_nodes = xdim * ydim * zdim
-    if dt is None:
-        dt = 1.0
-
-    # 2) Use -o asciiTm for extraction: --------------------------------
-    #
-    #    Each line => time value + n_nodes data values
-    #
-    #    default example line =>  "time val_node0 val_node1 ... val_node_{n_nodes-1}"
-    #
-    cmd_extract = [
-        "igbextract",
-        f"-l0-{n_nodes - 1}",    # Extract from node 0 to node n_nodes-1
-        "-O", "-",
-        "-o", "asciiTm",        # Output format is asciiTm
-        igb_filename
-    ]
-
-    try:
-        result_extract = subprocess.run(cmd_extract, capture_output=True, text=True, check=True)
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Error running igbextract on {igb_filename}:\n{e.stderr}")
-
-    extract_lines = result_extract.stdout.strip().split("\n")
-    num_timesteps = len(extract_lines)
-    if num_timesteps != tdim:
-        print(f"Warning: Extracted {num_timesteps} lines, but header says {tdim} timesteps.")
-
-    # 3) Parse lines into time array & data -----------------------------
-    #
-    #    For asciiTm:
-    #      columns = [time, nodeVal0, nodeVal1, ..., nodeVal{n_nodes-1}]
-    #
-    time_array = np.zeros(num_timesteps, dtype=float)
-    data = np.zeros((num_timesteps, n_nodes), dtype=float)
-
-    for i, line in enumerate(extract_lines):
-        cols = line.strip().split()
-        if len(cols) != (1 + n_nodes):
-            raise ValueError(
-                f"Line {i} has {len(cols)} columns, expected {1 + n_nodes} "
-                f"(time + {n_nodes} node vals)."
-            )
-        time_array[i] = float(cols[0])
-        data_vals = [float(x) for x in cols[1:]]
-        data[i, :] = data_vals
-
-    # If you prefer to override the time array from dt + t_origin:
-    # time_array = t_origin + np.arange(num_timesteps) * dt
-
-    header_info = {
-        "x_dim": xdim,
-        "y_dim": ydim,
-        "z_dim": zdim,
-        "t_dim": tdim,
-        "dt": dt,
-        "t_origin": t_origin,
-        "n_nodes": n_nodes,
-    }
-
-    return time_array, data, header_info
 
 
 def compute_ECG(ECG, num_leads, job, idExp, meshname=None):
@@ -663,6 +613,32 @@ def compute_ECG(ECG, num_leads, job, idExp, meshname=None):
 
     print(f"Fibrotic ECG leads saved to: {fibrotic_csv_path}")
     print(f"Healthy ECG leads saved to: {healthy_csv_path}")
+
+    plot = False
+    if plot:
+        max_rows = 4
+        ncols = math.ceil(num_leads / max_rows)
+        nrows = min(num_leads, max_rows)
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 3 * nrows), sharex=True)
+        axes = axes.flatten() if isinstance(axes, np.ndarray) else [axes]
+
+        for i in range(num_leads):
+            ax = axes[i]
+            ax.plot(fibrotic_leads[i], label="Fibrotic", color='red', linewidth=2)
+            ax.plot(healthy_leads[i], label="Healthy", color='black', linestyle='--', linewidth=2)
+            ax.set_ylabel("Transmural ECG")
+            ax.set_title(f"Lead {i}")
+            ax.legend()
+
+        for j in range(num_leads, len(axes)):
+            axes[j].axis("off")
+
+        for ax in axes[-ncols:]:
+            ax.set_xlabel("Time")
+
+        plt.tight_layout()
+        plt.show()
 
 
 if __name__ == "__main__":

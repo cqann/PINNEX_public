@@ -204,7 +204,7 @@ def split_train_val_df(df_spatial, val_ratio=0.2, random_sample=False, seed=None
     return df_train, df_val
 
 
-def get_dataloaders(spatiotemp_path, ecg_path, batch_size=128, val_ratio=0.2, seed=None, group_by_delay_variant=False):
+def get_dataloaders(spatiotemp_path, ecg_path, batch_size=128, val_ratio=0.2, seed=None, group_by_delay_variant=False, device="cpu"):
     """
     1) Load spatial DataFrame from parquet (columns: x, y, z, T, sim_id)
     2) Load ECG dictionary from parquet.
@@ -212,7 +212,7 @@ def get_dataloaders(spatiotemp_path, ecg_path, batch_size=128, val_ratio=0.2, se
     4) Build Dataset objects that reference the ecg_dict.
     5) Return DataLoaders for training and validation.
     """
-
+    num_workers = 1 if device == "cpu" else 4
     df_spatial = load_spatiotemp_df(spatiotemp_path)
     ecg_dict = load_ecg_dict(ecg_path)
     # df_spatial = df_spatial[df_spatial["sim_id"] >= 20000]
@@ -227,22 +227,14 @@ def get_dataloaders(spatiotemp_path, ecg_path, batch_size=128, val_ratio=0.2, se
                               batch_size=batch_size,
                               shuffle=True,
                               collate_fn=collate_fn,
-                              num_workers=4,
+                              num_workers=num_workers,
                               pin_memory=True)
 
     val_loader = DataLoader(val_dataset,
                             batch_size=batch_size,
                             shuffle=True,
                             collate_fn=collate_fn,
-                            num_workers=4,
+                            num_workers=num_workers,
                             pin_memory=True)
-    '''
-    test_loader = DataLoader(val_dataset,
-                        batch_size=batch_size,
-                        shuffle=False,
-                        collate_fn=collate_fn,
-                        num_workers=4,
-                        pin_memory=True)
 
-    '''
     return train_loader, val_loader

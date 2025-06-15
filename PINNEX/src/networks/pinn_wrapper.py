@@ -9,10 +9,11 @@ class CachedPINNWrapper(nn.Module):
     during the current epoch.
     """
 
-    def __init__(self, pinn_model):
+    def __init__(self, pinn_model, cache=True):
         super().__init__()
         self.model = pinn_model  # instance of PINNWithECG
         self._ecg_cache = {}     # sim_id -> cached z_ecg
+        self.cache = cache
 
     def start_new_epoch(self):
         """
@@ -25,7 +26,7 @@ class CachedPINNWrapper(nn.Module):
         z_pde = self.model.pde_encoder(x, y, z)
 
         # 2) Obtain ECG latent; use caching if sim_ids are provided.
-        if sim_ids is None or True:
+        if sim_ids is None or not self.cache:
             z_ecg = self.model.ecg_encoder(ecg)
         else:
             batch_size = ecg.shape[0]
