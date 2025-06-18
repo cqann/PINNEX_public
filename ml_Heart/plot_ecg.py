@@ -1,4 +1,4 @@
-# plot_ecg_custom_names.py
+
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
