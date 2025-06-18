@@ -14,15 +14,13 @@ from carputils import ep
 from carputils.carpio import txt
 import math
 from scipy.signal import iirfilter, filtfilt
-import pandas as pd  
+import pandas as pd
 import random
 import subprocess
 from plot_ecg import generate_ecg_plot_simple
 
 
-CALLER_DIR = os.getcwd()
-EXAMPLE_DIR = os.path.dirname(__file__)
-print(EXAMPLE_DIR)
+CALLER_DIR = os.path.dirname(__file__)
 
 
 def parser():
@@ -39,7 +37,7 @@ def parser():
     group.add_argument(
         "--simID",
         type=str,
-        default=1,
+        default="1",
         help="provide simID for which to compute the transmural ECG",
     )
     group.add_argument(
@@ -62,6 +60,9 @@ def parser():
     group.add_argument(
         "--mesh", type=str, default="1600", help="provide mesh directory"
     )
+    group.add_argument(
+        "--heart", type=str, default="Mean", help="provide heart directory"
+    )
 
     return parser
 
@@ -77,10 +78,9 @@ def run(args, job):
     # ===================================
     # 1 : Defining the mesh:
     # ===================================
+
     mesh_folder = os.path.join(
-        os.path.dirname(CALLER_DIR),
-        "ml_Heart",
-        args.mesh + "_heart",
+        CALLER_DIR, "..", "Meshes", args.heart, args.mesh, "openCarp"
     )
 
     meshname = os.path.join(mesh_folder, "heart")
@@ -90,7 +90,7 @@ def run(args, job):
     pts_file = os.path.join(mesh_folder, "heart.pts")
     points = txt.read(pts_file)
     points = points[0].T
-    setup_fibrois(meshname, args, mesh_folder)  # Fixa
+    setup_fibrois(meshname, args, mesh_folder)
 
     imp_reg = setup_ionic()
     g_reg = setup_gregions(args)
@@ -179,7 +179,7 @@ def run(args, job):
 
     ecg = [
         "-phie_rec_ptf",
-        os.path.join(mesh_folder, "leads_placement"),
+        os.path.join(mesh_folder, "..", "leads_placement"),
         "-phie_rec_meth",
         "2",
     ]
@@ -214,7 +214,7 @@ def run(args, job):
 
     simID = job.ID
     # Place the output folder inside the mesh folder ("Mean_0.82" folder)
-    output_folder = os.path.join(mesh_folder, simID)
+    output_folder = os.path.join(CALLER_DIR, simID)
     print("Simulation output folder: ", output_folder)
     cmd += [
         "-meshname",
@@ -240,7 +240,7 @@ def setup_ionic():
         "-imp_region[0].im",
         "MitchellSchaeffer",
         "-imp_region[0].num_IDs",
-        3,  
+        3,
         "-imp_region[0].ID[0]",
         "1",
         "-imp_region[0].ID[1]",
@@ -321,11 +321,8 @@ def setup_gregions(args):
 
 
 def setup_fibrois(meshname, args, meshfolder):
-
     elems, etags, nelems = txt.read(meshname + "_original.elem")
-    points, n_points = txt.read(
-        os.path.join(meshfolder, "..", "1600_heart", "heart.pts")
-    )
+    points, n_points = txt.read(os.path.join(meshfolder, "heart.pts"))
     if args.random_seed == None:
         random_seed = int(args.simID)
     else:
@@ -438,7 +435,7 @@ def setup_fibrois(meshname, args, meshfolder):
 
     etags[fibrotic_tetra] = 2
     etags[core_fibrotic_tetra] = 3
-    output_file_path = os.path.join(EXAMPLE_DIR, "fibrosis_vol_fractions_all_runs.txt")
+    output_file_path = os.path.join(CALLER_DIR, "fibrosis_vol_fractions_all_runs.txt")
     try:
         with open(output_file_path, "a") as f:  # 'a' for append mode
             f.write(f"{vol_fraction_fibrosis}\n")  # Write the fraction and a newline

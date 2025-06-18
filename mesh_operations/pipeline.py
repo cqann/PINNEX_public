@@ -1,51 +1,64 @@
 #!/usr/bin/env python3
 import os, time
-from mesh_io         import replace_class_label
-from step_cobiveco   import run_cobiveco
-from step_fibers     import run_fibers
-from step_opencarp   import prepare_openCarp, run_set_fibers
+from mesh_io import replace_class_label
+from step_cobiveco import run_cobiveco
+from step_fibers import run_fibers
+from step_opencarp import prepare_openCarp, run_set_fibers
 from step_electrodes import run_electrodes
-from step_regions    import run_set_regions
+from step_regions import run_set_regions
 
 
 import argparse
 
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="heart-mesh pipeline")
-    p.add_argument("folder", help="mesh folder name, e.g. 1600")
+    p.add_argument("--folder", help="mesh folder name, e.g. 1600")
+    p.add_argument(
+        "--heart",
+        required=True,
+        help="mesh folder inside ‘Meshes’, e.g. Mean or 001",
+    )
 
     # run-mode switches
-    p.add_argument("--electrodes", action="store_true",
-                   help="run ONLY the electrode-placement step")
-    p.add_argument("--regions", action="store_true",
-                   help="run ONLY the region-masking step "
-                        "(add --electrodes to run both)")
+    p.add_argument(
+        "--electrodes",
+        action="store_true",
+        help="run ONLY the electrode-placement step",
+    )
+    p.add_argument(
+        "--regions",
+        action="store_true",
+        help="run ONLY the region-masking step " "(add --electrodes to run both)",
+    )
 
     return p
-
 
 
 def main(argv=None) -> None:
     args = build_parser().parse_args(argv)
     folder = args.folder
+    heart = args.heart
 
     # ----------------------------------------------------------------
     # paths (unchanged lines below; kept here for context)
     # ----------------------------------------------------------------
-    cobiveco_folder  = "/Users/jesperarnwald/Documents/GitHub/Cobiveco/Heart"
-    fiber_folder     = "/Users/jesperarnwald/Documents/GitHub/LDRB_Fibers/Heart"
+    cobiveco_folder = "/Users/jesperarnwald/Documents/GitHub/Cobiveco/Heart"
+    fiber_folder = "/Users/jesperarnwald/Documents/GitHub/LDRB_Fibers/Heart"
     volume_file_name = "heart_vol.vtu"
     surface_file_name = "heart_sur.vtp"
 
     start_total = time.time()
 
-    mesh_dir        = os.path.abspath(os.path.join(os.path.dirname(__file__),
-                                                   "Meshes", folder))
-    surface_dir     = os.path.abspath(os.path.join(os.path.dirname(__file__),
-                                                   "Meshes"))
-    input_surface   = os.path.join(surface_dir, surface_file_name)
+    mesh_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "Meshes", heart, folder)
+    )
+    surface_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "Meshes", heart)
+    )
+    input_surface = os.path.join(surface_dir, surface_file_name)
     modified_surface = os.path.join(surface_dir, "heart_sur_4regions.vtp")
-    volume_file     = os.path.join(mesh_dir, volume_file_name)
+    volume_file = os.path.join(mesh_dir, volume_file_name)
 
     # ----------------------------------------------------------------
     # 1 – 5  run **only** when no step-specific flag is given
@@ -68,7 +81,7 @@ def main(argv=None) -> None:
         print(f"Done in {time.time()-start_total:.2f}s\n")
 
         print("Step 5: set_fibers …")
-        run_set_fibers(folder)
+        run_set_fibers(folder, heart)
         print(f"Done in {time.time()-start_total:.2f}s\n")
 
     # ----------------------------------------------------------------
@@ -76,16 +89,15 @@ def main(argv=None) -> None:
     # ----------------------------------------------------------------
     if args.electrodes:
         print("Step 6: put_electrodes …")
-        run_electrodes(folder)
+        run_electrodes(folder, heart)
         print(f"Done in {time.time()-start_total:.2f}s\n")
 
     if args.regions:
         print("Step 7: set_regions …")
-        run_set_regions(folder)
+        run_set_regions(folder, heart)
         print(f"Done in {time.time()-start_total:.2f}s\n")
 
     print(f"Full pipeline finished in {time.time()-start_total:.2f}s")
-
 
 
 if __name__ == "__main__":
