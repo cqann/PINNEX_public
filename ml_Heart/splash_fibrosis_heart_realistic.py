@@ -662,10 +662,6 @@ def bessel_lowpass_filter_1d(data, fs, highcut=60.0, order=2):
     if not isinstance(data, np.ndarray):
         raise TypeError("Input 'data' must be a NumPy array.")
     if data.ndim != 1:
-        # If you strictly want ONLY 1D, uncomment the next line
-        # raise ValueError(f"Input 'data' must be 1-dimensional, but got shape {data.shape}")
-        # Otherwise, this function *will* work on ND arrays by filtering the last axis.
-        # For this use case (calling it per lead), data will be 1D.
         pass
 
     nyquist = 0.5 * fs
