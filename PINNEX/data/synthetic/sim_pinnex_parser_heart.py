@@ -40,8 +40,18 @@ ECG0 = {
     "Lead V6": 0.1251,
 }
 ECG_ORDER = [
-    "Lead I", "Lead II", "Lead III", "Lead aVR", "Lead aVL", "Lead aVF",
-    "Lead V1", "Lead V2", "Lead V3", "Lead V4", "Lead V5", "Lead V6"
+    "Lead I",
+    "Lead II",
+    "Lead III",
+    "Lead aVR",
+    "Lead aVL",
+    "Lead aVF",
+    "Lead V1",
+    "Lead V2",
+    "Lead V3",
+    "Lead V4",
+    "Lead V5",
+    "Lead V6",
 ]
 
 ################################################################################
@@ -177,7 +187,7 @@ def process_all_simulations(sim_root, out_dir):
     ]
     activation_dfs = []
     ecg_dfs = []
-    common_points_file = os.path.join(sim_root, "heart_1600.pts")
+    common_points_file = os.path.join(sim_root, "heart.pts")
     # df_healthy = pd.read_csv("healthy_ecg.csv", header=0)
     # df_healthy = df_healthy / ECG0
     # df_healthy = df_healthy.to_numpy(dtype=np.float32).T

@@ -22,6 +22,7 @@ def generate_stimulation_params(n_simulations=2):
             "n_patches": 1,
             "random_seed": str(i + 1),
             "mesh": str(1600),
+            "heart": "Mean",
         }
         param_list.append(params)
     return param_list
@@ -78,7 +79,7 @@ def run_simulations(n_simulations=2):
 
     # Point to your actual script location
     proto_dir = os.path.abspath(os.path.join(current_dir, "..", "..", "..", "ml_Heart"))
-    simulation_script = os.path.join(proto_dir, "splash_fibrosis_heart.py")
+    simulation_script = os.path.join(proto_dir, "splash_fibrosis_heart_realistic.py")
 
     # List of file names to be collected
     file_list = ["act.igb", "ecg.csv", "point_cv_stats.csv"]
@@ -100,6 +101,8 @@ def run_simulations(n_simulations=2):
             str(params["n_patches"]),
             "--mesh",
             str(params["mesh"]),
+            "--heart",
+            params["heart"],
         ]
         print(" ".join(cmd))
         print(f"Running simulation '{sim_id}' ...")
