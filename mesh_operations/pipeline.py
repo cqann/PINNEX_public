@@ -41,7 +41,7 @@ def main(argv=None) -> None:
     heart = args.heart
 
     # ----------------------------------------------------------------
-    # paths (unchanged lines below; kept here for context)
+    # paths
     # ----------------------------------------------------------------
     cobiveco_folder = "/Users/jesperarnwald/Documents/GitHub/Cobiveco/Heart"
     fiber_folder = "/Users/jesperarnwald/Documents/GitHub/LDRB_Fibers/Heart"
@@ -77,7 +77,7 @@ def main(argv=None) -> None:
         print(f"Done in {time.time()-start_total:.2f}s\n")
 
         print("Step 4: prepare_openCarp …")
-        prepare_openCarp(folder, os.path.join(mesh_dir, "cobiveco.vtu"))
+        prepare_openCarp(folder, heart, os.path.join(mesh_dir, "cobiveco.vtu"))
         print(f"Done in {time.time()-start_total:.2f}s\n")
 
         print("Step 5: set_fibers …")

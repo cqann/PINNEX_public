@@ -159,7 +159,7 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 meshes
-Meshes
+
 [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_*/
 
 *.pts

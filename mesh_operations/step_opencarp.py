@@ -5,12 +5,12 @@ import vtk, numpy as np
 # ----------------------------------------------------------------------------
 #  prepare_openCarp  (verbatim)
 # ----------------------------------------------------------------------------
-def prepare_openCarp(folder, file_name):
+def prepare_openCarp(folder, heart, file_name):
     """
     Original prepare_openCarp code unchanged.
     """
     target_folder = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "Meshes", folder)
+        os.path.join(os.path.dirname(__file__), "..", "Meshes", heart, folder)
     )
     output_folder = os.path.join(target_folder, "openCarp")
     os.makedirs(output_folder, exist_ok=True)

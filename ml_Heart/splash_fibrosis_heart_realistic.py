@@ -18,7 +18,7 @@ import pandas as pd
 import random
 import subprocess
 from plot_ecg import generate_ecg_plot_simple
-
+import shutil
 
 CALLER_DIR = os.path.dirname(__file__)
 
@@ -54,7 +54,7 @@ def parser():
     group.add_argument(
         "--n_patches",
         type=int,
-        default=None,  # Default to None, meaning non-reproducible if not set
+        default=0,  # Default to None, meaning non-reproducible if not set
         help="Display a plot of the computed 12-lead ECG after computation.",
     )
     group.add_argument(
@@ -179,7 +179,7 @@ def run(args, job):
 
     ecg = [
         "-phie_rec_ptf",
-        os.path.join(mesh_folder, "..", "leads_placement"),
+        os.path.join(mesh_folder, "..", "..", "..", "leads_placement"),
         "-phie_rec_meth",
         "2",
     ]
@@ -321,7 +321,10 @@ def setup_gregions(args):
 
 
 def setup_fibrois(meshname, args, meshfolder):
-    elems, etags, nelems = txt.read(meshname + "_original.elem")
+    orig_elem_file = meshname + "_original.elem"
+    if not os.path.exists(orig_elem_file):
+        shutil.copy(meshname + ".elem", orig_elem_file)
+    elems, etags, nelems = txt.read(orig_elem_file)
     points, n_points = txt.read(os.path.join(meshfolder, "heart.pts"))
     if args.random_seed == None:
         random_seed = int(args.simID)
